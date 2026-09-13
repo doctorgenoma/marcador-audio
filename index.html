@@ -2,58 +2,254 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Marcador de Puntos en Audio</title>
 <style>
-  body { font-family: system-ui, Arial, sans-serif; background:#111; color:#eee; max-width:720px; margin:20px auto; padding:0 16px; }
-  h1 { font-size: 1.3rem; }
-  .drop { border:2px dashed #555; border-radius:8px; padding:24px; text-align:center; cursor:pointer; }
-  .drop.over { border-color:#4caf50; background:#1a2a1a; }
-  audio { width:100%; margin-top:12px; }
-  .bar-wrap { position:relative; height:28px; margin-top:6px; background:#222; border-radius:4px; }
-  .marker-tick { position:absolute; top:0; bottom:0; width:2px; background:#ffb300; cursor:pointer; }
-  .marker-tick:hover { width:4px; background:#ffd54f; }
-  .controls { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
-  button { background:#2d6cdf; color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:0.95rem; }
-  button.secondary { background:#444; }
-  button.danger { background:#a33; }
-  input[type=text] { flex:1; padding:8px; border-radius:6px; border:1px solid #444; background:#1b1b1b; color:#eee; min-width:150px; }
-  table { width:100%; border-collapse:collapse; margin-top:16px; font-size:0.9rem; }
-  th, td { border-bottom:1px solid #333; padding:6px 8px; text-align:left; }
-  th { color:#aaa; }
-  td.time { white-space:nowrap; color:#ffb300; cursor:pointer; }
-  .note-input { width:100%; background:transparent; border:none; color:#eee; }
-  .note-input:focus { outline:1px solid #2d6cdf; }
-  .hint { color:#888; font-size:0.85rem; margin-top:6px; }
-  .toolbar { display:flex; gap:8px; margin-top:16px; }
-  #errorBox { color:#ff6b6b; margin-top:8px; font-size:0.9rem; }
+  :root {
+    --bg: #111;
+    --fg: #eee;
+    --accent: #2d6cdf;
+    --accent2: #444;
+    --danger: #a33;
+    --marker: #ffb300;
+    --marker-hover: #ffd54f;
+    --border: #333;
+    --input-bg: #1b1b1b;
+    --input-border: #444;
+    --muted: #888;
+    --radius: 8px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+
+  [data-theme="8bit"] {
+    --bg: #0f0f23;
+    --fg: #e0e0e0;
+    --accent: #ff2f6d;
+    --accent2: #2b2b52;
+    --danger: #ff2f6d;
+    --marker: #2fff9f;
+    --marker-hover: #7bffc4;
+    --border: #4a4a8a;
+    --input-bg: #1a1a3a;
+    --input-border: #4a4a8a;
+    --muted: #8888c0;
+    --radius: 0px;
+    --font: "Press Start 2P", "Courier New", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin:0; padding:0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--fg);
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 12px 12px 100px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  [data-theme="8bit"] body { image-rendering: pixelated; }
+
+  h1 {
+    font-size: 1.15rem;
+    line-height: 1.4;
+    margin: 8px 0;
+  }
+  [data-theme="8bit"] h1 {
+    font-size: 0.85rem;
+    text-shadow: 2px 2px 0 var(--accent2);
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .theme-toggle {
+    display: flex;
+    gap: 6px;
+    background: var(--input-bg);
+    padding: 4px;
+    border-radius: var(--radius);
+    border: 1px solid var(--input-border);
+  }
+  .theme-toggle button {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    background: transparent;
+    color: var(--muted);
+    border-radius: var(--radius);
+  }
+  .theme-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .drop {
+    border: 2px dashed var(--input-border);
+    border-radius: var(--radius);
+    padding: 20px 12px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .drop.over { border-color: #4caf50; background: #1a2a1a; }
+  [data-theme="8bit"] .drop { border-style: solid; }
+
+  #errorBox { color: #ff6b6b; margin-top: 8px; font-size: 0.85rem; word-break: break-word; }
+
+  .player-wrap {
+    width: 100%;
+    overflow: visible;
+    margin-top: 12px;
+  }
+
+  audio {
+    width: 100%;
+    display: block;
+    min-height: 40px;
+  }
+
+  .bar-wrap {
+    position: relative;
+    height: 32px;
+    margin-top: 8px;
+    background: var(--input-bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    touch-action: none;
+  }
+  .marker-tick {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 3px;
+    background: var(--marker);
+    cursor: pointer;
+  }
+  .marker-tick:hover, .marker-tick:active { width: 6px; background: var(--marker-hover); }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 12px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  [data-theme="8bit"] button {
+    border: 3px solid #fff;
+    box-shadow: 3px 3px 0 #000;
+    font-size: 0.6rem;
+    padding: 12px 6px;
+  }
+  [data-theme="8bit"] button:active {
+    box-shadow: 1px 1px 0 #000;
+    transform: translate(2px, 2px);
+  }
+  button.secondary { background: var(--accent2); }
+  button.danger { background: var(--danger); }
+
+  input[type=text] {
+    width: 100%;
+    padding: 10px;
+    border-radius: var(--radius);
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); }
+
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .hint {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.88rem; }
+  th, td { border-bottom: 1px solid var(--border); padding: 8px 6px; text-align: left; vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+  td.time { white-space: nowrap; color: var(--marker); cursor: pointer; font-weight: bold; }
+  .note-input { width: 100%; background: transparent; border: none; color: var(--fg); font-size: 0.9rem; padding: 4px 2px; }
+  .note-input:focus { outline: 1px solid var(--accent); }
+  td.del-cell { width: 36px; text-align: center; }
+  td.del-cell button { padding: 6px 8px; font-size: 0.85rem; }
+
+  @media (max-width: 420px) {
+    h1 { font-size: 1rem; }
+    [data-theme="8bit"] h1 { font-size: 0.7rem; }
+    .controls, .toolbar { grid-template-columns: 1fr 1fr; }
+    table { font-size: 0.8rem; }
+    th, td { padding: 6px 4px; }
+  }
+
+  @media (hover: none) {
+    button { padding: 14px 10px; }
+  }
 </style>
 </head>
-<body>
+<body data-theme="simple">
 
-<h1>🎧 Marcador de puntos en audio</h1>
+<div class="topbar">
+  <h1>🎧 Marcador de puntos en audio</h1>
+  <div class="theme-toggle">
+    <button id="themeSimple" class="active">Simple</button>
+    <button id="theme8bit">8-bit</button>
+  </div>
+</div>
+
 <p class="hint">Carga un audio, reprodúcelo, y pulsa <strong>Marcar</strong> (o la barra espaciadora) en el momento exacto que quieras anotar. Se pausará automáticamente y podrás escribir una nota.</p>
 
-<div class="drop" id="drop">Arrastra un archivo de audio aquí o haz clic para seleccionarlo<br>(MP3, WAV, M4A, OGG, AAC, FLAC...)</div>
+<div class="drop" id="drop">Arrastra un archivo de audio aquí o toca para seleccionarlo<br>(MP3, WAV, M4A, OGG, AAC, FLAC...)</div>
 <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" style="display:none">
 <div id="errorBox"></div>
 
-<audio id="player" controls></audio>
+<div class="player-wrap">
+  <audio id="player" controls playsinline></audio>
+</div>
 <div class="bar-wrap" id="barWrap"></div>
 
 <div class="controls">
-  <button id="markBtn">⏸ Marcar punto</button>
+  <button id="markBtn">⏸ Marcar</button>
   <button id="backBtn" class="secondary">« -5s</button>
   <button id="fwdBtn" class="secondary">+5s »</button>
 </div>
 
 <div class="toolbar">
-  <button id="exportCsv" class="secondary">Exportar CSV</button>
-  <button id="exportJson" class="secondary">Exportar JSON</button>
-  <button id="clearAll" class="danger">Borrar todo</button>
+  <button id="exportCsv" class="secondary">CSV</button>
+  <button id="exportJson" class="secondary">JSON</button>
+  <button id="clearAll" class="danger">Borrar</button>
 </div>
 
 <table>
-  <thead><tr><th style="width:90px">Tiempo</th><th>Nota</th><th style="width:40px"></th></tr></thead>
+  <thead><tr><th style="width:80px">Tiempo</th><th>Nota</th><th style="width:36px"></th></tr></thead>
   <tbody id="markerTable"></tbody>
 </table>
 
@@ -154,10 +350,10 @@ function renderMarkers() {
     input.addEventListener('input', () => { m.note = input.value; });
 
     const tdDel = document.createElement('td');
+    tdDel.className = 'del-cell';
     const delBtn = document.createElement('button');
     delBtn.textContent = '✕';
     delBtn.className = 'danger';
-    delBtn.style.padding = '4px 8px';
     delBtn.addEventListener('click', () => { markers.splice(i,1); renderMarkers(); });
 
     tdNote.appendChild(input);
@@ -204,6 +400,19 @@ function downloadBlob(content, filename, type) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+const themeSimpleBtn = document.getElementById('themeSimple');
+const theme8bitBtn = document.getElementById('theme8bit');
+function setTheme(theme) {
+  document.body.setAttribute('data-theme', theme);
+  themeSimpleBtn.classList.toggle('active', theme === 'simple');
+  theme8bitBtn.classList.toggle('active', theme === '8bit');
+  localStorage.setItem('marcador_theme', theme);
+}
+themeSimpleBtn.addEventListener('click', () => setTheme('simple'));
+theme8bitBtn.addEventListener('click', () => setTheme('8bit'));
+const savedTheme = localStorage.getItem('marcador_theme');
+if (savedTheme) setTheme(savedTheme);
 </script>
 </body>
 </html>
