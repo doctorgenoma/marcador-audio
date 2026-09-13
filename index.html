@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Marcador de Puntos en Audio</title>
+<style>
+  body { font-family: system-ui, Arial, sans-serif; background:#111; color:#eee; max-width:720px; margin:20px auto; padding:0 16px; }
+  h1 { font-size: 1.3rem; }
+  .drop { border:2px dashed #555; border-radius:8px; padding:24px; text-align:center; cursor:pointer; }
+  .drop.over { border-color:#4caf50; background:#1a2a1a; }
+  audio { width:100%; margin-top:12px; }
+  .bar-wrap { position:relative; height:28px; margin-top:6px; background:#222; border-radius:4px; }
+  .marker-tick { position:absolute; top:0; bottom:0; width:2px; background:#ffb300; cursor:pointer; }
+  .marker-tick:hover { width:4px; background:#ffd54f; }
+  .controls { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  button { background:#2d6cdf; color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:0.95rem; }
+  button.secondary { background:#444; }
+  button.danger { background:#a33; }
+  input[type=text] { flex:1; padding:8px; border-radius:6px; border:1px solid #444; background:#1b1b1b; color:#eee; min-width:150px; }
+  table { width:100%; border-collapse:collapse; margin-top:16px; font-size:0.9rem; }
+  th, td { border-bottom:1px solid #333; padding:6px 8px; text-align:left; }
+  th { color:#aaa; }
+  td.time { white-space:nowrap; color:#ffb300; cursor:pointer; }
+  .note-input { width:100%; background:transparent; border:none; color:#eee; }
+  .note-input:focus { outline:1px solid #2d6cdf; }
+  .hint { color:#888; font-size:0.85rem; margin-top:6px; }
+  .toolbar { display:flex; gap:8px; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<h1>🎧 Marcador de puntos en audio</h1>
+<p class="hint">Carga un audio, reprodúcelo, y pulsa <strong>Marcar</strong> (o la barra espaciadora) en el momento exacto que quieras anotar. Se pausará automáticamente y podrás escribir una nota.</p>
+
+<div class="drop" id="drop">Arrastra un archivo de audio aquí o haz clic para seleccionarlo<br>(MP3, WAV, M4A, OGG...)</div>
+<input type="file" id="fileInput" accept="audio/*" style="display:none">
+
+<audio id="player" controls></audio>
+<div class="bar-wrap" id="barWrap"></div>
+
+<div class="controls">
+  <button id="markBtn">⏸ Marcar punto</button>
+  <button id="backBtn" class="secondary">« -5s</button>
+  <button id="fwdBtn" class="secondary">+5s »</button>
+</div>
+
+<div class="toolbar">
+  <button id="exportCsv" class="secondary">Exportar CSV</button>
+  <button id="exportJson" class="secondary">Exportar JSON</button>
+  <button id="clearAll" class="danger">Borrar todo</button>
+</div>
+
+<table>
+  <thead><tr><th style="width:90px">Tiempo</th><th>Nota</th><th style="width:40px"></th></tr></thead>
+  <tbody id="markerTable"></tbody>
+</table>
+
+<script>
+const player = document.getElementById('player');
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+const markerTable = document.getElementById('markerTable');
+const barWrap = document.getElementById('barWrap');
+let markers = [];
+let fileName = 'audio';
+
+function fmt(t) {
+  const h = Math.floor(t/3600);
+  const m = Math.floor((t%3600)/60);
+  const s = (t%60).toFixed(2);
+  const sPadded = s.padStart(5,'0');
+  return h>0 ? `${h}:${String(m).padStart(2,'0')}:${sPadded}` : `${m}:${sPadded}`;
+}
+
+function loadFile(file) {
+  fileName = file.name.replace(/\.[^.]+$/, '');
+  const url = URL.createObjectURL(file);
+  player.src = url;
+  markers = [];
+  renderMarkers();
+}
+
+drop.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function addMarker() {
+  if (!player.src) return;
+  const t = player.currentTime;
+  player.pause();
+  markers.push({ time: t, note: '' });
+  markers.sort((a,b) => a.time - b.time);
+  renderMarkers();
+  setTimeout(() => {
+    const rows = markerTable.querySelectorAll('input.note-input');
+    const idx = markers.findIndex(m => m.time === t);
+    if (rows[idx]) rows[idx].focus();
+  }, 50);
+}
+
+document.getElementById('markBtn').addEventListener('click', addMarker);
+document.getElementById('backBtn').addEventListener('click', () => player.currentTime = Math.max(0, player.currentTime - 5));
+document.getElementById('fwdBtn').addEventListener('click', () => player.currentTime = Math.min(player.duration||0, player.currentTime + 5));
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+    if (player.paused) player.play(); else addMarker();
+  }
+});
+
+function renderMarkers() {
+  markerTable.innerHTML = '';
+  barWrap.querySelectorAll('.marker-tick').forEach(el => el.remove());
+  markers.forEach((m, i) => {
+    const tr = document.createElement('tr');
+    const tdTime = document.createElement('td');
+    tdTime.className = 'time';
+    tdTime.textContent = fmt(m.time);
+    tdTime.title = 'Ir a este punto';
+    tdTime.addEventListener('click', () => { player.currentTime = m.time; player.play(); });
+
+    const tdNote = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'note-input';
+    input.placeholder = 'Escribe tu nota...';
+    input.value = m.note;
+    input.addEventListener('input', () => { m.note = input.value; });
+
+    const tdDel = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '✕';
+    delBtn.className = 'danger';
+    delBtn.style.padding = '4px 8px';
+    delBtn.addEventListener('click', () => { markers.splice(i,1); renderMarkers(); });
+
+    tdNote.appendChild(input);
+    tdDel.appendChild(delBtn);
+    tr.appendChild(tdTime); tr.appendChild(tdNote); tr.appendChild(tdDel);
+    markerTable.appendChild(tr);
+
+    if (player.duration) {
+      const tick = document.createElement('div');
+      tick.className = 'marker-tick';
+      tick.style.left = (m.time / player.duration * 100) + '%';
+      tick.title = fmt(m.time) + (m.note ? ' - ' + m.note : '');
+      tick.addEventListener('click', () => { player.currentTime = m.time; player.play(); });
+      barWrap.appendChild(tick);
+    }
+  });
+}
+
+player.addEventListener('loadedmetadata', renderMarkers);
+
+document.getElementById('clearAll').addEventListener('click', () => {
+  if (confirm('¿Borrar todos los marcadores?')) { markers = []; renderMarkers(); }
+});
+
+document.getElementById('exportCsv').addEventListener('click', () => {
+  let csv = 'tiempo_segundos,tiempo_formateado,nota\n';
+  markers.forEach(m => {
+    const note = '"' + (m.note||'').replace(/"/g,'""') + '"';
+    csv += `${m.time.toFixed(3)},${fmt(m.time)},${note}\n`;
+  });
+  downloadBlob(csv, fileName + '_marcadores.csv', 'text/csv');
+});
+
+document.getElementById('exportJson').addEventListener('click', () => {
+  const data = markers.map(m => ({ time_seconds: m.time, time_formatted: fmt(m.time), note: m.note }));
+  downloadBlob(JSON.stringify(data, null, 2), fileName + '_marcadores.json', 'application/json');
+});
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
