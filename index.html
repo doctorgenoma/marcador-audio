@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Marcador de Puntos en Audio</title>
+
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Marcador Audio">
+<meta name="theme-color" content="#111111">
+
 <style>
   :root {
     --bg: #111;
@@ -57,7 +65,11 @@
     font-size: 1.15rem;
     line-height: 1.4;
     margin: 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+  h1 img { width: 28px; height: 28px; border-radius: 6px; }
   [data-theme="8bit"] h1 {
     font-size: 0.85rem;
     text-shadow: 2px 2px 0 var(--accent2);
@@ -104,6 +116,16 @@
   [data-theme="8bit"] .drop { border-style: solid; }
 
   #errorBox { color: #ff6b6b; margin-top: 8px; font-size: 0.85rem; word-break: break-word; }
+  #restoreBox {
+    display: none;
+    background: var(--input-bg);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-top: 10px;
+    font-size: 0.85rem;
+  }
+  #restoreBox button { margin-top: 8px; margin-right: 8px; padding: 8px 12px; font-size: 0.8rem; }
 
   .player-wrap {
     width: 100%;
@@ -193,6 +215,12 @@
     line-height: 1.4;
   }
 
+  .autosave-note {
+    color: var(--muted);
+    font-size: 0.75rem;
+    margin-top: 6px;
+  }
+
   table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.88rem; }
   th, td { border-bottom: 1px solid var(--border); padding: 8px 6px; text-align: left; vertical-align: middle; }
   th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
@@ -218,7 +246,7 @@
 <body data-theme="simple">
 
 <div class="topbar">
-  <h1>🎧 Marcador de puntos en audio</h1>
+  <h1><img src="icon.png" alt="Icono Marcador de Audio">Marcador de puntos en audio</h1>
   <div class="theme-toggle">
     <button id="themeSimple" class="active">Simple</button>
     <button id="theme8bit">8-bit</button>
@@ -226,6 +254,12 @@
 </div>
 
 <p class="hint">Carga un audio, reprodúcelo, y pulsa <strong>Marcar</strong> (o la barra espaciadora) en el momento exacto que quieras anotar. Se pausará automáticamente y podrás escribir una nota.</p>
+
+<div id="restoreBox">
+  <span id="restoreMsg"></span><br>
+  <button id="restoreBtn">Restaurar marcadores</button>
+  <button id="discardBtn" class="secondary">Descartar</button>
+</div>
 
 <div class="drop" id="drop">Arrastra un archivo de audio aquí o toca para seleccionarlo<br>(MP3, WAV, M4A, OGG, AAC, FLAC...)</div>
 <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" style="display:none">
@@ -248,6 +282,8 @@
   <button id="clearAll" class="danger">Borrar</button>
 </div>
 
+<p class="autosave-note" id="autosaveNote"></p>
+
 <table>
   <thead><tr><th style="width:80px">Tiempo</th><th>Nota</th><th style="width:36px"></th></tr></thead>
   <tbody id="markerTable"></tbody>
@@ -260,10 +296,15 @@ const fileInput = document.getElementById('fileInput');
 const markerTable = document.getElementById('markerTable');
 const barWrap = document.getElementById('barWrap');
 const errorBox = document.getElementById('errorBox');
+const restoreBox = document.getElementById('restoreBox');
+const restoreMsg = document.getElementById('restoreMsg');
+const autosaveNote = document.getElementById('autosaveNote');
 let markers = [];
 let fileName = 'audio';
 let currentUrl = null;
+let hasUnsavedWork = false;
 const ALLOWED_EXT = ['mp3','wav','m4a','ogg','aac','flac','opus','webm'];
+const STORAGE_KEY = 'marcador_audio_autosave_v1';
 
 function fmt(t) {
   const h = Math.floor(t/3600);
@@ -275,6 +316,47 @@ function fmt(t) {
 
 function showError(msg) { errorBox.textContent = msg; }
 function clearError() { errorBox.textContent = ''; }
+
+function autosave() {
+  if (markers.length === 0) {
+    localStorage.removeItem(STORAGE_KEY);
+    autosaveNote.textContent = '';
+    return;
+  }
+  const payload = { fileName, markers, savedAt: new Date().toISOString() };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  const time = new Date(payload.savedAt).toLocaleTimeString();
+  autosaveNote.textContent = 'Guardado automatico en este dispositivo · ' + time;
+}
+
+function checkAutosaveOnLoad() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const payload = JSON.parse(raw);
+    if (payload.markers && payload.markers.length > 0) {
+      restoreMsg.textContent = 'Se encontraron ' + payload.markers.length + ' marcador(es) guardados de "' + payload.fileName + '" (' + new Date(payload.savedAt).toLocaleString() + '). Vuelve a cargar el mismo audio y pulsa Restaurar.';
+      restoreBox.style.display = 'block';
+      window._pendingRestore = payload;
+    }
+  } catch(e) {}
+}
+
+document.getElementById('restoreBtn').addEventListener('click', () => {
+  if (window._pendingRestore) {
+    markers = window._pendingRestore.markers;
+    fileName = window._pendingRestore.fileName;
+    markers.sort((a,b) => a.time - b.time);
+    renderMarkers();
+    autosave();
+  }
+  restoreBox.style.display = 'none';
+});
+
+document.getElementById('discardBtn').addEventListener('click', () => {
+  localStorage.removeItem(STORAGE_KEY);
+  restoreBox.style.display = 'none';
+});
 
 function loadFile(file) {
   clearError();
@@ -289,7 +371,9 @@ function loadFile(file) {
   player.src = currentUrl;
   player.load();
   markers = [];
+  hasUnsavedWork = false;
   renderMarkers();
+  autosave();
 }
 
 player.addEventListener('error', () => {
@@ -311,7 +395,9 @@ function addMarker() {
   player.pause();
   markers.push({ time: t, note: '' });
   markers.sort((a,b) => a.time - b.time);
+  hasUnsavedWork = true;
   renderMarkers();
+  autosave();
   setTimeout(() => {
     const rows = markerTable.querySelectorAll('input.note-input');
     const idx = markers.findIndex(m => m.time === t);
@@ -347,14 +433,14 @@ function renderMarkers() {
     input.className = 'note-input';
     input.placeholder = 'Escribe tu nota...';
     input.value = m.note;
-    input.addEventListener('input', () => { m.note = input.value; });
+    input.addEventListener('input', () => { m.note = input.value; hasUnsavedWork = true; autosave(); });
 
     const tdDel = document.createElement('td');
     tdDel.className = 'del-cell';
     const delBtn = document.createElement('button');
     delBtn.textContent = '✕';
     delBtn.className = 'danger';
-    delBtn.addEventListener('click', () => { markers.splice(i,1); renderMarkers(); });
+    delBtn.addEventListener('click', () => { markers.splice(i,1); hasUnsavedWork = true; renderMarkers(); autosave(); });
 
     tdNote.appendChild(input);
     tdDel.appendChild(delBtn);
@@ -375,7 +461,12 @@ function renderMarkers() {
 player.addEventListener('loadedmetadata', renderMarkers);
 
 document.getElementById('clearAll').addEventListener('click', () => {
-  if (confirm('¿Borrar todos los marcadores?')) { markers = []; renderMarkers(); }
+  if (confirm('¿Borrar todos los marcadores?')) {
+    markers = [];
+    hasUnsavedWork = false;
+    renderMarkers();
+    autosave();
+  }
 });
 
 document.getElementById('exportCsv').addEventListener('click', () => {
@@ -385,11 +476,13 @@ document.getElementById('exportCsv').addEventListener('click', () => {
     csv += `${m.time.toFixed(3)},${fmt(m.time)},${note}\n`;
   });
   downloadBlob(csv, fileName + '_marcadores.csv', 'text/csv');
+  hasUnsavedWork = false;
 });
 
 document.getElementById('exportJson').addEventListener('click', () => {
   const data = markers.map(m => ({ time_seconds: m.time, time_formatted: fmt(m.time), note: m.note }));
   downloadBlob(JSON.stringify(data, null, 2), fileName + '_marcadores.json', 'application/json');
+  hasUnsavedWork = false;
 });
 
 function downloadBlob(content, filename, type) {
@@ -400,6 +493,14 @@ function downloadBlob(content, filename, type) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+window.addEventListener('beforeunload', (e) => {
+  if (hasUnsavedWork && markers.length > 0) {
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
 
 const themeSimpleBtn = document.getElementById('themeSimple');
 const theme8bitBtn = document.getElementById('theme8bit');
@@ -413,6 +514,8 @@ themeSimpleBtn.addEventListener('click', () => setTheme('simple'));
 theme8bitBtn.addEventListener('click', () => setTheme('8bit'));
 const savedTheme = localStorage.getItem('marcador_theme');
 if (savedTheme) setTheme(savedTheme);
+
+checkAutosaveOnLoad();
 </script>
 </body>
 </html>
