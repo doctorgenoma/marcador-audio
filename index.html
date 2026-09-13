@@ -25,6 +25,7 @@
   .note-input:focus { outline:1px solid #2d6cdf; }
   .hint { color:#888; font-size:0.85rem; margin-top:6px; }
   .toolbar { display:flex; gap:8px; margin-top:16px; }
+  #errorBox { color:#ff6b6b; margin-top:8px; font-size:0.9rem; }
 </style>
 </head>
 <body>
@@ -32,8 +33,9 @@
 <h1>🎧 Marcador de puntos en audio</h1>
 <p class="hint">Carga un audio, reprodúcelo, y pulsa <strong>Marcar</strong> (o la barra espaciadora) en el momento exacto que quieras anotar. Se pausará automáticamente y podrás escribir una nota.</p>
 
-<div class="drop" id="drop">Arrastra un archivo de audio aquí o haz clic para seleccionarlo<br>(MP3, WAV, M4A, OGG...)</div>
-<input type="file" id="fileInput" accept="audio/*" style="display:none">
+<div class="drop" id="drop">Arrastra un archivo de audio aquí o haz clic para seleccionarlo<br>(MP3, WAV, M4A, OGG, AAC, FLAC...)</div>
+<input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" style="display:none">
+<div id="errorBox"></div>
 
 <audio id="player" controls></audio>
 <div class="bar-wrap" id="barWrap"></div>
@@ -61,8 +63,11 @@ const drop = document.getElementById('drop');
 const fileInput = document.getElementById('fileInput');
 const markerTable = document.getElementById('markerTable');
 const barWrap = document.getElementById('barWrap');
+const errorBox = document.getElementById('errorBox');
 let markers = [];
 let fileName = 'audio';
+let currentUrl = null;
+const ALLOWED_EXT = ['mp3','wav','m4a','ogg','aac','flac','opus','webm'];
 
 function fmt(t) {
   const h = Math.floor(t/3600);
@@ -72,13 +77,28 @@ function fmt(t) {
   return h>0 ? `${h}:${String(m).padStart(2,'0')}:${sPadded}` : `${m}:${sPadded}`;
 }
 
+function showError(msg) { errorBox.textContent = msg; }
+function clearError() { errorBox.textContent = ''; }
+
 function loadFile(file) {
+  clearError();
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!ALLOWED_EXT.includes(ext) && !file.type.startsWith('audio/')) {
+    showError('El archivo "' + file.name + '" no parece un audio soportado (extension .' + ext + ').');
+    return;
+  }
+  if (currentUrl) URL.revokeObjectURL(currentUrl);
   fileName = file.name.replace(/\.[^.]+$/, '');
-  const url = URL.createObjectURL(file);
-  player.src = url;
+  currentUrl = URL.createObjectURL(file);
+  player.src = currentUrl;
+  player.load();
   markers = [];
   renderMarkers();
 }
+
+player.addEventListener('error', () => {
+  showError('El navegador no ha podido decodificar este archivo. Prueba a convertirlo a MP3 o WAV estandar (128-320kbps) con otra herramienta y vuelve a cargarlo.');
+});
 
 drop.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
